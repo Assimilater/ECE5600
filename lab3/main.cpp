@@ -170,13 +170,27 @@ void icmp_handler(byte* packet, int n, ip_header* header)
 	icmp_frame* frame = (icmp_frame*)packet;
 	
 	// Validate the checksum
-	if (chksum(packet, sizeof(icmp_header), 0) != 0xffff)
+	if (chksum(packet, sizeof(icmp_header) + n, 0) != 0xffff)
 	{
 		printf("ICMP message received with bad checksum\n");
 		return;
 	}
 	
 	//printf("ICMP message received\n");
+	switch (frame->header.type)
+	{
+		case 0x08: // echo (ping) request
+			frame->header.type = 0x00; // echo (ping) reply
+			frame->header.crc[0] = 0;
+			frame->header.crc[1] = 0;
+			
+			int crc = ~chksum((byte*)frame, n, 0);
+			frame->header.crc[0] = (crc & 0xff00) >> 8;
+			frame->header.crc[1] = (crc & 0x00ff) >> 0;
+			
+			sendIPv4Packet(header->src, IPV4_PROT_ICMP, packet, n);
+			break;
+	}
 }
 
 void pingARP(byte* ip)
