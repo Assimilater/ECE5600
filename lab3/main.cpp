@@ -141,6 +141,7 @@ void arp_handler(byte* packet, int n, ether_header* header)
 
 void ip_handler(byte* packet, int n, ether_header* header)
 {
+	static const int this_ip = BUFF_UINT32(me.ip, 0);
 	ip_frame* frame = (ip_frame*)packet;
 	
 	// Validate the checksum
@@ -150,9 +151,22 @@ void ip_handler(byte* packet, int n, ether_header* header)
 		return;
 	}
 	
+	// Ignore packets meant for others
+	if (BUFF_UINT32(frame->header.dst, 0) != this_ip)
+	{
+		return;
+	}
+	
 	// Don't include any padding in ip packet
 	int len = BUFF_UINT16(frame->header.length, 0);
 	if (n > len) { n = len; }
+	
+	// This should be a rare error condition
+	if (n < len)
+	{
+		printf("IP message received with missing data\n");
+		return;
+	}
 	
 	// Find the payload
 	byte* payload = frame->data;
@@ -174,7 +188,7 @@ void icmp_handler(byte* packet, int n, ip_header* header)
 	icmp_frame* frame = (icmp_frame*)packet;
 	
 	// Validate the checksum
-	if (chksum(packet, sizeof(icmp_header) + n, 0) != 0xffff)
+	if (chksum(packet, n, 0) != 0xffff)
 	{
 		printf("ICMP message received with bad checksum\n");
 		return;
