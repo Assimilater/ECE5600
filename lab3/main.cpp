@@ -9,15 +9,15 @@
 
 #include "net.hpp"
 
-// device name must be manually hard-coded
+// device name must be hard-coded
 frameio net("enp3s0");
 
 net_device me = 
 {
 	0, 0, 0, 0, 0, 0, // mac copied at start of main()
-	192, 168, 1, 30,  // ip must be manually hard-coded
-	255, 255, 255, 0, // subnet mask must be hard-coded
-	192, 168, 1, 1, // default gateway must be hard-coded
+	192, 168, 1, 30,  // ip              must be hard-coded
+	255, 255, 255, 0, // subnet mask     must be hard-coded
+	192, 168, 1, 1,   // default gateway must be hard-coded
 };
 
 std::unordered_map<int, ipmac*> arp_cache;
@@ -152,8 +152,9 @@ void ip_handler(byte* frame, int n)
 	
 	// Find the payload
 	byte* payload = buf->data;
-	payload = payload + (4 * (buf->header.ihl - 5));
-	int payload_n = n - (4 * (buf->header.ihl - 5)) - sizeof(ip_header);
+	int options = (buf->header.ver_ihl & 0x0f) - 5;
+	payload = payload + (4 * options);
+	int payload_n = n - (4 * options) - sizeof(ip_header);
 	
 	//printf("IP message received, protocol: %i\n", buf->header.prot);
 	switch (buf->header.prot)
@@ -262,11 +263,14 @@ void sendIPv4Packet(byte* ip, byte prot, byte* payload, int n)
 	*/
 	
 	// static initializer for request
-	if (request.header.version == 0)
+	if (request.header.ver_ihl == 0)
 	{
-		request.header.version = 4;
-		request.header.ihl = 5; // no options
-		request.header.flags = 2; // no fragmentation
+		//request.header.version = 4;
+		//request.header.ihl = 5; // no options
+		request.header.ver_ihl = 0x45;
+		//request.header.flags = 2; // no fragmentation
+		request.header.frag[0] = 0x40;
+		request.header.ttl = 64;
 		memcpy(request.header.src, me.ip, 4); // copy source ip
 	}
 	
@@ -278,6 +282,8 @@ void sendIPv4Packet(byte* ip, byte prot, byte* payload, int n)
 	int N = sizeof(ip_header) + n;
 	ether_frame* frame = make_frame(dst_mac, ETHER_PROT_IPV4, (byte*)(&request), N);
 	ip_frame* packet = (ip_frame*)(frame->data);
+	memcpy(packet->data, payload, n);
+	memcpy(packet->header.dst, ip, 4);
 	
 	packet->header.length[0] = (N & 0xff00) >> 8;
 	packet->header.length[1] = (N & 0x00ff) >> 0;
@@ -287,11 +293,9 @@ void sendIPv4Packet(byte* ip, byte prot, byte* payload, int n)
 	
 	packet->header.prot = prot;
 	
-	int crc = chksum((byte*)packet, sizeof(ip_header), 0);
+	int crc = ~chksum((byte*)packet, sizeof(ip_header), 0);
 	packet->header.crc[0] = (crc & 0xff00) >> 8;
 	packet->header.crc[1] = (crc & 0x00ff) >> 0;
-	
-	memcpy(packet->header.dst, ip, 4);
 	
 	send_queue.send(PACKET, frame, N + sizeof(ether_header));
 	free(frame);
@@ -320,13 +324,13 @@ void pingICMP(byte* ip, byte* data, int n)
 	request.header.crc[0] = 0;
 	request.header.crc[1] = 0;
 	
-	request.header.echo.ident[0] = (sequence & 0xff00) >> 8;
-	request.header.echo.ident[1] = (sequence & 0x00ff) >> 0;
+	request.header.echo.ident[0] = (identifier & 0xff00) >> 8;
+	request.header.echo.ident[1] = (identifier & 0x00ff) >> 0;
 	
 	request.header.echo.seqno[0] = (sequence & 0xff00) >> 8;
 	request.header.echo.seqno[1] = (sequence & 0x00ff) >> 0;
 	
-	int crc = chksum((byte*)(&request), N, 0);
+	int crc = ~chksum((byte*)(&request), N, 0);
 	request.header.crc[0] = (crc & 0xff00) >> 8;
 	request.header.crc[1] = (crc & 0x00ff) >> 0;
 	
@@ -348,7 +352,7 @@ int main()
 	//------------------------------------------------------------------------+
 	// main application routine                                               |
 	
-	byte request[4] = { 192, 168, 1, 0 };
+	byte request[4] = { 192, 168, 1, 1 };
 	byte payload[4] = { 0xde, 0xad, 0xbe, 0xef };
 	
 	while(1) {

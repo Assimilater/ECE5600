@@ -2,7 +2,7 @@ lab3: main.cpp net.hpp chksum.o message_queue.o frameio.o
 	g++ -std=c++11 main.cpp chksum.o message_queue.o frameio.o -lpthread -g -O0 -o lab3
 
 chksum.o: chksum.c
-	g++ chksum.c -c -o chksum.o
+	g++ chksum.c -g -O0 -c -o chksum.o
 
 message_queue.o: message_queue.cpp message_queue.hpp
 	g++ message_queue.cpp -c -o message_queue.o
