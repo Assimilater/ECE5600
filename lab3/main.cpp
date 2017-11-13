@@ -60,31 +60,31 @@ message_queue send_queue;
 void* send_thread(void* args)
 {
 	int n;
-	ether_frame buf;
+	ether_frame frame;
 	event_kind event;
 	while(1)
 	{
-		n = send_queue.recv(&event, &buf, sizeof(buf));
-		net.send_frame(&buf, n);
+		n = send_queue.recv(&event, &frame, sizeof(ether_frame));
+		net.send_frame(&frame, n);
 	}
 }
 
 void* receive_thread(void* args)
 {
-	ether_frame buf;
+	ether_frame frame;
 	
 	while(1)
 	{
-		int n = net.recv_frame(&buf, sizeof(buf));
+		int n = net.recv_frame(&frame, sizeof(ether_frame));
 		if (n < 42) continue; // bad frame!
-		switch (BUFF_UINT16(buf.header.prot, 0))
+		switch (BUFF_UINT16(frame.header.prot, 0))
 		{
 			case ETHER_PROT_IPV4:
-				ip_handler(buf.data, n - sizeof(ether_header));
+				ip_handler(frame.data, n - sizeof(ether_header), &(frame.header));
 				break;
 				
 			case ETHER_PROT_ARP:
-				arp_handler(buf.data, n - sizeof(ether_header));
+				arp_handler(frame.data, n - sizeof(ether_header), &(frame.header));
 				break;
 		}
 	}
@@ -101,21 +101,21 @@ ether_frame* make_frame(byte* dst, unsigned short prot, byte* data, int n)
 	return out;
 }
 
-void arp_handler(byte* frame, int n)
+void arp_handler(byte* packet, int n, ether_header* header)
 {
-	arp_frame* buf = (arp_frame*)frame;
+	arp_frame* frame = (arp_frame*)packet;
 
-	switch (BUFF_UINT16(buf->header.opcode, 0))
+	switch (BUFF_UINT16(frame->header.opcode, 0))
 	{
 		case 1: // Request
-			saveArpCache(((ipmac*)buf->data) + 0);
-			if (buf->data[16] == me.ip[0] &&
-				buf->data[17] == me.ip[1] &&
-				buf->data[18] == me.ip[2] &&
-				buf->data[19] == me.ip[3])
+			saveArpCache(((ipmac*)frame->data) + 0);
+			if (frame->data[16] == me.ip[0] &&
+				frame->data[17] == me.ip[1] &&
+				frame->data[18] == me.ip[2] &&
+				frame->data[19] == me.ip[3])
 			{
 				// Start with a response frame that has a payload exactly matching what we received
-				ether_frame* response = make_frame(buf->data, ETHER_PROT_ARP, (byte*)&buf, n);
+				ether_frame* response = make_frame(frame->data, ETHER_PROT_ARP, (byte*)&frame, n);
 				arp_frame* response_arp = (arp_frame*)((byte*)(response) + sizeof(ether_header));
 				
 				// Convert to reply opcode
@@ -133,41 +133,48 @@ void arp_handler(byte* frame, int n)
 			break;
 			
 		case 2: // Reply
-			saveArpCache(((ipmac*)buf->data) + 0);
-			saveArpCache(((ipmac*)buf->data) + 1);
+			saveArpCache(((ipmac*)frame->data) + 0);
+			saveArpCache(((ipmac*)frame->data) + 1);
 			break;
 	}
 }
 
-void ip_handler(byte* frame, int n)
+void ip_handler(byte* packet, int n, ether_header* header)
 {
-	ip_frame* buf = (ip_frame*)frame;
+	ip_frame* frame = (ip_frame*)packet;
 	
 	// Validate the checksum
-	if (chksum(frame, sizeof(ip_header), 0) != 0xffff)
+	if (chksum(packet, sizeof(ip_header), 0) != 0xffff)
 	{
 		printf("IP message received with bad checksum\n");
 		return;
 	}
 	
 	// Find the payload
-	byte* payload = buf->data;
-	int options = (buf->header.ver_ihl & 0x0f) - 5;
+	byte* payload = frame->data;
+	int options = (frame->header.ver_ihl & 0x0f) - 5;
 	payload = payload + (4 * options);
 	int payload_n = n - (4 * options) - sizeof(ip_header);
 	
-	//printf("IP message received, protocol: %i\n", buf->header.prot);
-	switch (buf->header.prot)
+	//printf("IP message received, protocol: %i\n", frame->header.prot);
+	switch (frame->header.prot)
 	{
 		case IPV4_PROT_ICMP:
-			icmp_handler(payload, payload_n);
+			icmp_handler(payload, payload_n, &(frame->header));
 			break;
 	}
 }
 
-void icmp_handler(byte* frame, int n)
+void icmp_handler(byte* packet, int n, ip_header* header)
 {
-	icmp_frame* buf = (icmp_frame*)frame;
+	icmp_frame* frame = (icmp_frame*)packet;
+	
+	// Validate the checksum
+	if (chksum(packet, sizeof(icmp_header), 0) != 0xffff)
+	{
+		printf("ICMP message received with bad checksum\n");
+		return;
+	}
 	
 	//printf("ICMP message received\n");
 }

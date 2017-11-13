@@ -28,16 +28,6 @@ struct net_device
 	byte default_gateway[4];
 };
 
-#define ETHER_PROT_IPV4         0x0800
-#define ETHER_PROT_ARP          0x0806
-
-void arp_handler(byte* frame, int n);
-
-void ip_handler(byte* frame, int n);
-
-#define IPV4_PROT_ICMP          0x01
-void icmp_handler(byte* frame, int n);
-
 //----------------------------------------------------------------------------+
 // Ethernet 802.3/DIX frames                                                  |
 struct ether_header
@@ -77,6 +67,7 @@ struct arp_frame
 };
 ipmac* retrieveArpCache(byte* value);
 void saveArpCache(ipmac* value);
+void pingARP(byte* ip);
 //----------------------------------------------------------------------------+
 
 //----------------------------------------------------------------------------+
@@ -103,6 +94,7 @@ struct ip_frame
 	ip_header header;
 	byte data[1500 - sizeof(ip_header)];
 };
+void sendIPv4Packet(byte* ip, byte prot, byte* payload, int n);
 //----------------------------------------------------------------------------+
 
 //----------------------------------------------------------------------------+
@@ -128,4 +120,15 @@ struct icmp_frame
 	icmp_header header;
 	byte data[1500 - sizeof(ip_header) - sizeof(icmp_header)];
 };
+void pingICMP(byte* ip, byte* data, int n);
 //----------------------------------------------------------------------------+
+
+#define ETHER_PROT_IPV4         0x0800
+#define ETHER_PROT_ARP          0x0806
+
+void arp_handler(byte* packet, int n, ether_header* header);
+
+void ip_handler(byte* packet, int n, ether_header* header);
+
+#define IPV4_PROT_ICMP          0x01
+void icmp_handler(byte* packet, int n, ip_header* header);
