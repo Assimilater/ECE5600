@@ -1,0 +1,325 @@
+#include "frameio.hpp"
+#include "message_queue.hpp"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <unordered_map>
+
+#include "net.hpp"
+
+// device name must be manually hard-coded
+frameio net("enp3s0");
+
+net_device me = 
+{
+	0, 0, 0, 0, 0, 0, // mac copied at start of main()
+	192, 168, 1, 30,  // ip must be manually hard-coded
+	255, 255, 255, 0, // subnet mask must be hard-coded
+	192, 168, 1, 1, // default gateway must be hard-coded
+};
+
+std::unordered_map<int, ipmac*> arp_cache;
+inline int hash_ip(byte* ip)
+{
+	static const int hash_mask = ~BUFF_UINT32(me.subnet_mask, 0);
+	int ip4 = BUFF_UINT32(ip, 0);
+	int key = ip4 & hash_mask;
+	return key;
+}
+ipmac* retrieveArpCache(byte* ip)
+{
+	int key = hash_ip(ip);
+	auto search = arp_cache.find(key);
+	if (search != arp_cache.end()) {
+		return search->second;
+	}
+	return NULL;
+}
+void saveArpCache(ipmac* value)
+{
+	ipmac* found = retrieveArpCache(value->ip);
+	if (found == NULL)
+	{
+		// insert
+		ipmac* copy = (ipmac*)malloc(sizeof(ipmac));
+		memcpy(copy, value, sizeof(ipmac));
+		int key = hash_ip(copy->ip);
+		arp_cache.insert({key, copy});
+	}
+	else
+	{
+		// update
+		memcpy(found, value, sizeof(ipmac));
+	}
+}
+
+// message queue for the sending ether_frames
+message_queue send_queue;
+void* send_thread(void* args)
+{
+	int n;
+	ether_frame buf;
+	event_kind event;
+	while(1)
+	{
+		n = send_queue.recv(&event, &buf, sizeof(buf));
+		net.send_frame(&buf, n);
+	}
+}
+
+void* receive_thread(void* args)
+{
+	ether_frame buf;
+	
+	while(1)
+	{
+		int n = net.recv_frame(&buf, sizeof(buf));
+		if (n < 42) continue; // bad frame!
+		switch (BUFF_UINT16(buf.header.prot, 0))
+		{
+			case ETHER_PROT_IPV4:
+				ip_handler(buf.data, n - sizeof(ether_header));
+				break;
+				
+			case ETHER_PROT_ARP:
+				arp_handler(buf.data, n - sizeof(ether_header));
+				break;
+		}
+	}
+}
+
+ether_frame* make_frame(byte* dst, unsigned short prot, byte* data, int n)
+{
+	ether_frame* out = (ether_frame*)malloc(n + sizeof(ether_header));
+	memcpy(out->header.dst, dst, 6);
+	memcpy(out->header.src, me.mac, 6);
+	out->header.prot[0] = (prot & 0xFF00) >> 8;
+	out->header.prot[1] = (prot & 0x00FF) >> 0;
+	memcpy(out->data, data, n);
+	return out;
+}
+
+void arp_handler(byte* frame, int n)
+{
+	arp_frame* buf = (arp_frame*)frame;
+
+	switch (BUFF_UINT16(buf->header.opcode, 0))
+	{
+		case 1: // Request
+			saveArpCache(((ipmac*)buf->data) + 0);
+			if (buf->data[16] == me.ip[0] &&
+				buf->data[17] == me.ip[1] &&
+				buf->data[18] == me.ip[2] &&
+				buf->data[19] == me.ip[3])
+			{
+				// Start with a response frame that has a payload exactly matching what we received
+				ether_frame* response = make_frame(buf->data, ETHER_PROT_ARP, (byte*)&buf, n);
+				arp_frame* response_arp = (arp_frame*)((byte*)(response) + sizeof(ether_header));
+				
+				// Convert to reply opcode
+				response_arp->header.opcode[1] = 2;
+				
+				// Move the sender info the the target info
+				memcpy(response_arp->data + sizeof(ipmac), response_arp->data + 0, sizeof(ipmac));
+				
+				// Fill the sender info with our info
+				memcpy(response_arp->data + 0, &me, sizeof(ipmac));
+				
+				send_queue.send(PACKET, response, n + sizeof(ether_header));
+				free(response);
+			}
+			break;
+			
+		case 2: // Reply
+			saveArpCache(((ipmac*)buf->data) + 0);
+			saveArpCache(((ipmac*)buf->data) + 1);
+			break;
+	}
+}
+
+void ip_handler(byte* frame, int n)
+{
+	ip_frame* buf = (ip_frame*)frame;
+	
+	// Validate the checksum
+	if (chksum(frame, sizeof(ip_header), 0) != 0xffff)
+	{
+		printf("IP message received with bad checksum\n");
+		return;
+	}
+	
+	// Find the payload
+	byte* payload = buf->data;
+	payload = payload + (4 * (buf->header.ihl - 5));
+	int payload_n = n - (4 * (buf->header.ihl - 5)) - sizeof(ip_header);
+	
+	//printf("IP message received, protocol: %i\n", buf->header.prot);
+	switch (buf->header.prot)
+	{
+		case IPV4_PROT_ICMP:
+			icmp_handler(payload, payload_n);
+			break;
+	}
+}
+
+void icmp_handler(byte* frame, int n)
+{
+	icmp_frame* buf = (icmp_frame*)frame;
+	
+	//printf("ICMP message received\n");
+}
+
+// assuming value->mac = { ff, ff, ff, ff, ff, ff }
+void sendARP(ipmac* value)
+{
+	ipmac* found = retrieveArpCache(value->ip);
+	arp_frame message = {
+		{
+			{ 0, 1 },
+			{ 8, 0 },
+			6, 4,
+			{ 0, 1 }
+		},
+		{ 0 },
+	};
+	if(found == NULL)
+	{
+		printf("Not Found in cache, sending broadcast request\n");
+		message.header.opcode[1] = 1; // request
+		memcpy(message.data, &me, sizeof(ipmac));
+		memcpy(((ipmac*)(message.data)) + 1, value, sizeof(ipmac));
+	}
+	else
+	{
+		printf("Found in cache, sending reply\n");
+		message.header.opcode[1] = 2; // reply
+		memcpy(message.data, &me, sizeof(ipmac));
+		memcpy(((ipmac*)(message.data)) + 1, found, sizeof(ipmac));
+	}
+	int n = sizeof(arp_header) + (2 * sizeof(ipmac));
+	ether_frame* frame = make_frame((byte*)(((ipmac*)(message.data)) + 1), ETHER_PROT_ARP, (byte*)(&message), n);
+	send_queue.send(PACKET, frame, n + sizeof(ether_header));
+	free(frame);
+}
+
+void pingARP(byte* ip)
+{
+	static arp_frame message = {
+		{
+			{ 0, 1 },
+			{ 8, 0 },
+			6, 4,
+			{ 0, 1 },
+		},
+		{ 0 },
+	};
+	static const int n = sizeof(arp_header) + (2 * sizeof(ipmac));
+	
+	if (message.data[0] == 0)
+	{
+		memcpy(message.data, &me, sizeof(ipmac));
+	}
+	
+	ipmac* found = retrieveArpCache(ip);
+	if(found == NULL)
+	{
+		ipmac value = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0 };
+		memcpy(value.ip, ip, 4);
+		memcpy(((ipmac*)(message.data)) + 1, &value, sizeof(ipmac));
+	}
+	else
+	{
+		memcpy(((ipmac*)(message.data)) + 1, found, sizeof(ipmac));
+	}
+	ether_frame* frame = make_frame((byte*)(((ipmac*)(message.data)) + 1), ETHER_PROT_ARP, (byte*)(&message), n);
+	send_queue.send(PACKET, frame, n + sizeof(ether_header));
+	free(frame);
+}
+
+inline byte* hop_ip(byte* ip)
+{
+	static const int gateway = BUFF_UINT32(me.default_gateway, 0);
+	static const int subnet_mask = BUFF_UINT32(me.subnet_mask, 0);
+	static const int subnet = subnet_mask & gateway;
+	
+	int ip4 = BUFF_UINT32(ip, 0);
+	if (ip4 & subnet_mask == subnet)
+	{
+		return ip;
+	}
+	return me.default_gateway;
+}
+byte* get_mac(byte* ip)
+{
+	byte* dst_ip = hop_ip(ip);
+	ipmac* dst = retrieveArpCache(dst_ip);
+	
+	int attempts = 4;
+	while (dst == NULL && --attempts >= 0)
+	{
+		pingARP(dst_ip);
+		sleep(1);
+		dst = retrieveArpCache(dst_ip);
+	}
+	
+	if (dst == NULL)
+	{
+		printf("Unable to resolve ip address: %i.%i.%i.%i\n", ip[0], ip[1], ip[2], ip[3]);
+		return NULL;
+	}
+	return dst->mac;
+}
+
+void pingICMP(byte* ip)
+{
+	static unsigned short instance = 0;
+	++instance;
+	unsigned short sequence = 0;
+	
+	static icmp_frame request =
+	{
+		0x45, 0x00, 0x00, 0x00, 
+}
+
+int main()
+{
+	memcpy(me.mac, net.get_mac(), 6);
+	arp_cache[me.ip[3]] = &(me.arp_cache_self);
+	
+	int err;
+	pthread_t rthread, sthread;
+	
+	// Create the threads
+	err = pthread_create(&rthread, NULL, receive_thread, NULL);
+	err = pthread_create(&sthread, NULL, send_thread, NULL);
+	
+	//------------------------------------------------------------------------+
+	// main application routine                                               |
+	
+	/*
+	byte request[4] = { 192, 168, 1, 0 };
+	
+	while(1) {
+		printf("Press enter to send batch ...");
+		getchar();
+		
+		for(int i = 0; i < 5; ++i)
+		{
+			request[3] = 10 + i * 5;
+			printf("Sending 192.168.1.%i\n", request[3]);
+			pingARP(request);
+		}
+	}
+	*/
+	
+	// main application routine                                               |
+	//------------------------------------------------------------------------+
+	
+	// Put main() to sleep until threads exit
+	err = pthread_join(rthread, NULL);
+	err = pthread_join(sthread, NULL);
+	
+	return 0;
+}
