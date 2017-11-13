@@ -150,11 +150,15 @@ void ip_handler(byte* packet, int n, ether_header* header)
 		return;
 	}
 	
+	// Don't include any padding in ip packet
+	int len = BUFF_UINT16(frame->header.length, 0);
+	if (n > len) { n = len; }
+	
 	// Find the payload
 	byte* payload = frame->data;
-	int options = (frame->header.ver_ihl & 0x0f) - 5;
-	payload = payload + (4 * options);
-	int payload_n = n - (4 * options) - sizeof(ip_header);
+	int option_bytes = 4 * ((frame->header.ver_ihl & 0x0f) - 5);
+	payload = payload + option_bytes;
+	int payload_n = n - option_bytes - sizeof(ip_header);
 	
 	//printf("IP message received, protocol: %i\n", frame->header.prot);
 	switch (frame->header.prot)
