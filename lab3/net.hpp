@@ -133,6 +133,6 @@ struct icmp_header
 struct icmp_frame
 {
 	icmp_header header;
-	byte data[1500 - sizeof(ip_header)- sizeof(icmp_header)];
+	byte data[1500 - sizeof(ip_header) - sizeof(icmp_header)];
 };
 //----------------------------------------------------------------------------+

@@ -272,15 +272,82 @@ byte* get_mac(byte* ip)
 	return dst->mac;
 }
 
+void sendIPv4Packet(byte* ip, byte prot, byte* payload, int n)
+{
+	static unsigned short identifier = 0;
+	static ip_frame request = { 0 };
+	/*
+	{
+		{
+			{ 4, 5 }, // 0x45 // ipv4 optionless header
+			{ 0, 0 }, // default dscp
+			{ 0x00, 0x00 }, // length (calculated at each call)
+			{ 0x00, 0x00 }, // id (calculated at each call)
+			{ 2, 0 }, // 0x4000, // no fragmentation
+			64, // ttl 64 (seems common for a default)
+			0, // protocol: (copied at each call)
+			{ 0 }, // checksum (0 to start)
+			{ 0 }, // source (0 for now, copied on first call)
+			{ 0 }, // destination (copied at each call)
+		},
+		{ 0 }, // payload (copied at each call)
+	};
+	*/
+	
+	// static initializer for request
+	if (request.header.version == 0)
+	{
+		request.header.version = 4;
+		request.header.ihl = 5; // no options
+		request.header.flags = 2; // no fragmentation
+		memcpy(request.header.src, me.ip, 4); // copy source ip
+	}
+	
+	byte* dst_mac = get_mac(ip);
+	if (dst_mac == NULL) { return; }
+	
+	++identifier;
+	
+	int N = sizeof(ip_header) + n;
+	ether_frame* frame = make_frame(dst_mac, ETHER_PROT_IPV4, (byte*)(&request), N);
+	ip_frame* packet = (ip_frame*)(frame->data);
+	
+	packet->header.length[0] = (N & 0xff00) >> 8;
+	packet->header.length[1] = (N & 0x00ff) >> 0;
+	
+	packet->header.ident[0] = (identifier & 0xff00) >> 8;
+	packet->header.ident[1] = (identifier & 0x00ff) >> 0;
+	
+	packet->header.prot = prot;
+	
+	int crc = chksum((byte*)packet, sizeof(ip_header), 0);
+	packet->header.crc[0] = (crc & 0xff00) >> 8;
+	packet->header.crc[1] = (crc & 0x00ff) >> 0;
+	
+	memcpy(packet->header.dst, ip, 4);
+	
+	send_queue.send(PACKET, frame, N + sizeof(ether_header));
+	free(frame);
+}
+
 void pingICMP(byte* ip)
 {
-	static unsigned short instance = 0;
-	++instance;
-	unsigned short sequence = 0;
-	
+	static unsigned short identifier = 0;
 	static icmp_frame request =
 	{
-		0x45, 0x00, 0x00, 0x00, 
+		{
+			0x08, // echo (ping) request
+			0x00, // code
+			{ 0 }, // checksum (computed every call)
+			{ 0 }, // header (computed every call)
+		},
+		{ 0 },
+	};
+	
+	++identifier;
+	unsigned short sequence = 0;
+	
+	//sendIPv4Packet(ip, IPV4_PROT_ICMP, payload, n + sizeof(icmp_header));
 }
 
 int main()
