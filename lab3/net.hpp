@@ -83,20 +83,29 @@ void saveArpCache(ipmac* value);
 // IP                                                                         |
 struct ip_header
 {
-	byte
-		version:4,
-		ihl:4;
+	struct
+	{
+		byte
+			version:4,
+			ihl:4;
+	};
 	
-	byte
-		dscp:6,
-		ecn:2;
+	struct
+	{
+		byte
+			dscp:6,
+			ecn:2;
+	};
 	
 	byte length[2];
 	byte ident[2];
 	
-	unsigned short
-		flags:3,
-		fragoffs:13;
+	struct
+	{
+		unsigned short
+			flags:3,
+			fragoffs:13;
+	};
 	
 	byte ttl;
 	byte prot;
@@ -126,7 +135,7 @@ struct icmp_header
 		{
 			byte ident[2];
 			byte seqno[2];
-		} echo_reply;
+		} echo;
 	};
 };
 

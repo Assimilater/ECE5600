@@ -297,7 +297,7 @@ void sendIPv4Packet(byte* ip, byte prot, byte* payload, int n)
 	free(frame);
 }
 
-void pingICMP(byte* ip)
+void pingICMP(byte* ip, byte* data, int n)
 {
 	static unsigned short identifier = 0;
 	static icmp_frame request =
@@ -314,7 +314,23 @@ void pingICMP(byte* ip)
 	++identifier;
 	unsigned short sequence = 0;
 	
-	//sendIPv4Packet(ip, IPV4_PROT_ICMP, payload, n + sizeof(icmp_header));
+	memcpy(request.data, data, n);
+	int N = n + sizeof(icmp_header);
+	
+	request.header.crc[0] = 0;
+	request.header.crc[1] = 0;
+	
+	request.header.echo.ident[0] = (sequence & 0xff00) >> 8;
+	request.header.echo.ident[1] = (sequence & 0x00ff) >> 0;
+	
+	request.header.echo.seqno[0] = (sequence & 0xff00) >> 8;
+	request.header.echo.seqno[1] = (sequence & 0x00ff) >> 0;
+	
+	int crc = chksum((byte*)(&request), N, 0);
+	request.header.crc[0] = (crc & 0xff00) >> 8;
+	request.header.crc[1] = (crc & 0x00ff) >> 0;
+	
+	sendIPv4Packet(ip, IPV4_PROT_ICMP, (byte*)(&request), N);
 }
 
 int main()
@@ -332,21 +348,20 @@ int main()
 	//------------------------------------------------------------------------+
 	// main application routine                                               |
 	
-	/*
 	byte request[4] = { 192, 168, 1, 0 };
+	byte payload[4] = { 0xde, 0xad, 0xbe, 0xef };
 	
 	while(1) {
-		printf("Press enter to send batch ...");
+		printf("Press enter to ping ...");
 		getchar();
 		
-		for(int i = 0; i < 5; ++i)
+		//for(int i = 0; i < 5; ++i)
 		{
-			request[3] = 10 + i * 5;
-			printf("Sending 192.168.1.%i\n", request[3]);
-			pingARP(request);
+			//request[3] = 10 + i * 5;
+			printf("Sending 0xdeadbeef 192.168.1.%i\n", request[3]);
+			pingICMP(request, payload, 4);
 		}
 	}
-	*/
 	
 	// main application routine                                               |
 	//------------------------------------------------------------------------+
