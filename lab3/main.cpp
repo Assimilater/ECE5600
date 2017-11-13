@@ -352,7 +352,7 @@ int main()
 	//------------------------------------------------------------------------+
 	// main application routine                                               |
 	
-	byte request[4] = { 192, 168, 1, 1 };
+	byte request[4] = { 192, 168, 1, 30 };
 	byte payload[4] = { 0xde, 0xad, 0xbe, 0xef };
 	
 	while(1) {
@@ -362,7 +362,7 @@ int main()
 		//for(int i = 0; i < 5; ++i)
 		{
 			//request[3] = 10 + i * 5;
-			printf("Sending 0xdeadbeef 192.168.1.%i\n", request[3]);
+			printf("Sending 0xdeadbeef %i.%i.%i.%i\n", request[0], request[1], request[2], request[3]);
 			pingICMP(request, payload, 4);
 		}
 	}
