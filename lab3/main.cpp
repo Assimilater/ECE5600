@@ -234,7 +234,7 @@ inline byte* hop_ip(byte* ip)
 	static const int subnet = subnet_mask & gateway;
 	
 	int ip4 = BUFF_UINT32(ip, 0);
-	if (ip4 & subnet_mask == subnet)
+	if ((ip4 & subnet_mask) == subnet)
 	{
 		return ip;
 	}
