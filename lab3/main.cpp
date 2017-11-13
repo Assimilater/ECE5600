@@ -171,39 +171,6 @@ void icmp_handler(byte* frame, int n)
 	//printf("ICMP message received\n");
 }
 
-// assuming value->mac = { ff, ff, ff, ff, ff, ff }
-void sendARP(ipmac* value)
-{
-	ipmac* found = retrieveArpCache(value->ip);
-	arp_frame message = {
-		{
-			{ 0, 1 },
-			{ 8, 0 },
-			6, 4,
-			{ 0, 1 }
-		},
-		{ 0 },
-	};
-	if(found == NULL)
-	{
-		printf("Not Found in cache, sending broadcast request\n");
-		message.header.opcode[1] = 1; // request
-		memcpy(message.data, &me, sizeof(ipmac));
-		memcpy(((ipmac*)(message.data)) + 1, value, sizeof(ipmac));
-	}
-	else
-	{
-		printf("Found in cache, sending reply\n");
-		message.header.opcode[1] = 2; // reply
-		memcpy(message.data, &me, sizeof(ipmac));
-		memcpy(((ipmac*)(message.data)) + 1, found, sizeof(ipmac));
-	}
-	int n = sizeof(arp_header) + (2 * sizeof(ipmac));
-	ether_frame* frame = make_frame((byte*)(((ipmac*)(message.data)) + 1), ETHER_PROT_ARP, (byte*)(&message), n);
-	send_queue.send(PACKET, frame, n + sizeof(ether_header));
-	free(frame);
-}
-
 void pingARP(byte* ip)
 {
 	static arp_frame message = {
