@@ -145,9 +145,9 @@ int main(int argc, char *argv[])
    sk = socket(PF_INET, SOCK_STREAM, 0);
    if ( sk < 0 ) return -1;
 
-   memset(&sa,0,sizeof(sa));
+   memset(sin,0,sizeof(sa));
    sin->sin_family = PF_INET;
-   sin->sin_port = htons(6600);
+   sin->sin_port = htons(5600);
    if ( argc<2 || inet_pton(PF_INET, argv[1], &(sin->sin_addr)) <= 0 )
       inet_pton(PF_INET, IP_ADDR, &(sin->sin_addr));
 
