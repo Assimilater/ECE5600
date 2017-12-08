@@ -7,7 +7,7 @@
 //
 // number of 8-byte real numbers to transfer
 //
-#define POINTS 2000
+#define POINTS 200
 
 //
 // request and response buffers
