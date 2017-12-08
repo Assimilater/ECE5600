@@ -240,12 +240,8 @@ void pingARP(byte* ip)
 	{
 		memcpy(((ipmac*)(message.data)) + 1, found, sizeof(ipmac));
 	}
-<<<<<<< HEAD
-	ether_frame* frame = make_frame((byte*)(((ipmac*)(message.data)) + 1), ETHER_PROT_ARP, (byte*)(&message), n);
-=======
 	byte* dest_mac = (byte*)(((ipmac*)(message.data)) + 1);
 	ether_frame* frame = make_frame(dest_mac, ETHER_PROT_ARP, (byte*)(&message), n);
->>>>>>> 201a004e9e3491c8c7eb885beba8b52d81cbabb4
 	send_queue.send(PACKET, frame, n + sizeof(ether_header));
 	free(frame);
 }
