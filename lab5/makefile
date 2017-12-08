@@ -10,6 +10,9 @@ message_queue.o: message_queue.cpp message_queue.hpp
 frameio.o: frameio.cpp frameio.hpp
 	g++ frameio.cpp -c -o frameio.o
 
+udp_echo: udp_echo.cpp
+	g++ udp_echo.cpp –o udp_echo
+
 clean:
 	rm *.o
 	rm lab5
