@@ -8,7 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define BUFF 1024
+#define BUFF 2048
 
 int main() {
 	unsigned char buff[BUFF] = { 0 };
@@ -46,10 +46,11 @@ int main() {
 		}
 		printf("Accept succeeded\n");
 		
-		read(recv, buff, BUFF);
+		int N = read(recv, buff, BUFF);
+		printf("Read %i bytes\n", N);
 		
 		std::fstream fout("tcp_recv_" + std::to_string(i), std::ios::binary | std::ios::out);
-		fout.write((char*)buff, BUFF);
+		fout.write((char*)buff, N);
 		fout.close();
 		
 		++i;
