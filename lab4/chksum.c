@@ -20,7 +20,7 @@
 //    ip->header_checksum[0] = ~sum >> 8;
 //    ip->header_checksum[1] = ~sum & 0xff;
 //   
-int chksum(octet *s, int bytes, int initial)
+int chksum(unsigned char* s, int bytes, int initial)
 {
    long sum = initial;
    int i;
